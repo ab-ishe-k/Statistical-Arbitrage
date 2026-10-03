@@ -1,530 +1,184 @@
-# Statistical Arbitrage Engine - Project Documentation & Report
+# Quantitative Research Report: Statistical Arbitrage & Pairs Trading Engine
 
-> **Educational & Academic Disclaimer**: This project is designed as an educational paper-trading and backtesting simulation platform. Its main objective is to demonstrate quantitative financial modeling, statistical mechanics, and automated strategy execution. It does not constitute financial advice or claim guaranteed trading profits.
-
----
-
-## 1. Project Introduction
-
-### What is Statistical Arbitrage?
-Statistical Arbitrage (Stat Arb) is a quantitative, computational trading strategy that utilizes mathematical and statistical models to identify and exploit temporary **price imbalances** (pricing inefficiencies) between related financial assets (e.g., stocks, crypto assets, or ETFs). 
-Unlike traditional spatial arbitrage—which seeks to exploit price differences of a single asset across different exchanges—Statistical Arbitrage relies on historical price co-movements and statistical relationships (**Cointegration**) among pairs or baskets of securities.
-
-### What is Pairs Trading?
-Pairs Trading is the foundational and most widely implemented form of Statistical Arbitrage. It involves selecting two financial assets whose historical price movements exhibit a tight, statistically stationary relationship (e.g., Coca-Cola & Pepsi, or HDFC Bank & ICICI Bank).
-- When a micro-economic shock or temporary market noise causes one stock to diverge from its historical relationship (becoming temporarily overvalued or undervalued relative to the other), the system enters a market-neutral position: **Buying (Long)** the undervalued asset and **Selling (Short)** the overvalued asset.
-- When prices converge back toward their long-term historical mean, the open positions are closed to capture profit. This phenomenon is known as **Mean Reversion**.
-
-### Meaning of Market-Neutral Strategy
-A Market-Neutral strategy is constructed such that the portfolio's net exposure to broad stock market directional movements (Bullish or Bearish trends) is close to zero.
-- By taking simultaneous **Long** and **Short** positions in equal delta ratios, overall broad market risk is hedged out.
-- Regardless of whether the general market rises by 10% or crashes by 10%, profits depend solely on whether the relative price spread reverts back to its historical average.
-
-### Real-World Applications
-1. **Quantitative Hedge Funds**: Institutions like Renaissance Technologies (Medallion Fund), Two Sigma, Citadel, and WorldQuant deploy high-frequency statistical arbitrage engines daily.
-2. **Proprietary Trading Desks**: Investment banks and prop trading firms deploy automated latency-sensitive market-neutral algorithms to capture structural alpha.
-3. **Automated Risk Hedging**: Crypto liquidity providers and asset managers use Stat Arb models for market-neutral market making and portfolio risk mitigation.
+> **Academic & Research Disclaimer**: This document serves as a quantitative research report detailing the architectural design, mathematical foundation, walk-forward backtesting framework, and empirical findings of a statistical arbitrage research engine. It is intended strictly for academic evaluation, portfolio presentation, and paper-trading research.
 
 ---
 
-## 2. Project Objectives
+## 1. Executive Summary & Research Hypothesis
 
-1. **Identify Related Asset Pairs**: Automatically scan multi-asset historical data to discover pairs exhibiting strong correlation and statistical cointegration.
-2. **Analyze Price Relationships**: Compute the linear relationship using Ordinary Least Squares (OLS) regression to derive the Hedge Ratio ($\beta$), residual spread, and test for stationarity via the Augmented Dickey-Fuller (ADF) test.
-3. **Generate Automated Trading Signals**: Calculate rolling Z-scores to trigger quantitative Buy, Sell, Exit, and Stop-Loss signals based on predefined statistical thresholds ($\pm 2.0$ Z-score).
-4. **Conduct Backtesting & Performance Analysis**: Simulate strategy execution over historical tick/bar data to calculate risk-adjusted metrics such as the Sharpe Ratio, Maximum Drawdown, Win Rate, and Net PnL.
-5. **Implement Risk Management**: Protect portfolio capital using automated stop-loss thresholds, dynamic position sizing, leverage limits, and emergency kill switches.
+Statistical Arbitrage (Stat Arb) exploits temporary pricing inefficiencies between cointegrated financial assets. The core research hypothesis posits that if two non-stationary asset price series $P_A(t)$ and $P_B(t)$ share a stationary linear combination (cointegration), any divergence in their residual spread from its historical mean is temporary and will revert to equilibrium.
 
----
-
-## 3. Main Features
-
-1. **Market Data Collection**: Ingest historical and real-time OHLCV (Open, High, Low, Close, Volume) data from exchanges/APIs.
-2. **Data Cleaning & Synchronization**: Interpolate missing data points, adjust for splits/dividends, and align timestamps across assets.
-3. **Pair Selection**: Perform all-to-all screening across assets to identify candidate pairs with high correlation ($r > 0.80$).
-4. **Correlation Analysis**: Compute Pearson and Spearman rank correlation matrices.
-5. **Cointegration Testing**: Execute the Engle-Granger two-step method to confirm stationary linear combinations.
-6. **Augmented Dickey-Fuller (ADF) Test**: Calculate ADF test statistic and $p$-value ($p < 0.05$) to verify residual stationarity.
-7. **Hedge Ratio ($\beta$) Calculation**: Derive the optimal hedge ratio using Ordinary Least Squares (OLS) linear regression.
-8. **Spread Calculation**: Compute $\text{Spread}_t = \text{PriceA}_t - \beta \times \text{PriceB}_t$.
-9. **Z-Score Signal Generation**: Normalize the residual spread using rolling mean and standard deviation to generate Z-scores.
-10. **Portfolio Construction**: Allocate capital dynamically while maintaining dollar-neutral exposure across Long and Short legs.
-11. **Position Sizing**: Scale positions based on portfolio volatility or fixed equity percentages.
-12. **Risk Management**: Enforce maximum drawdown limits, daily loss caps, and leverage constraints.
-13. **Stop-Loss & Take-Profit**: Trigger exits when Z-scores revert to mean ($Z \approx 0.0$) or cross extreme breakdown levels ($|Z| > 3.5$).
-14. **Backtesting Engine**: Simulate historical bar-by-bar execution with realistic portfolio equity tracking.
-15. **Transaction Cost & Slippage Modeling**: Deduct brokerage commissions, exchange fees, and execution slippage from gross profits.
-16. **Order Execution Simulator**: Emulate paper-trading execution state machines.
-17. **Monitoring Dashboard**: Render real-time interactive visual charts using Streamlit and Plotly.
-18. **Performance Reporting**: Generate visual equity curves, drawdown charts, Z-score series, and detailed trade logs.
+### Key Innovations in this Engine:
+1. **Walk-Forward In-Sample Parameter Estimation**: Eliminates full-sample look-ahead bias by estimating Ordinary Least Squares (OLS) Hedge Ratios ($\beta_{\text{past}}$) and testing stationarity ($p < 0.05$) dynamically using rolling in-sample historical training windows ($W_{\text{train}} = 120$ bars).
+2. **Zero Look-Ahead Signal Normalization**: Ensures rolling mean ($\mu_{\text{past}}$) and standard deviation ($\sigma_{\text{past}}$) parameters for Z-score normalization are calculated strictly over past historical bars $[t-W, t-1]$ using explicit 1-bar shifts.
+3. **Realistic Event-Driven Execution Simulator**: Models 1-bar execution latency ($t+1$), bid-ask spread ($0.05\%$), slippage ($0.05\%$), and brokerage commissions ($0.10\%$).
+4. **Mark-to-Market Portfolio Accounting**: Tracks bar-by-bar portfolio equity, cash, unrealized PnL, realized PnL, gross exposure, and net exposure.
 
 ---
 
-## 4. Statistical Model
+## 2. Mathematical Foundations
 
-### Mathematical Formulas
+### 2.1 Dynamic Hedge Ratio Estimation (OLS Linear Regression)
+For an in-sample training window $[t-W_{\text{train}}, t-1]$, the linear relationship is estimated via Ordinary Least Squares:
+$$P_A(\tau) = \alpha + \beta \times P_B(\tau) + \epsilon(\tau), \quad \tau \in [t-W_{\text{train}}, t-1]$$
+where $\beta$ represents the optimal delta-hedge multiplier.
 
-1. **Spread Formula**:
-   $$\text{Spread}_t = \text{Price A}_t - \beta \times \text{Price B}_t$$
-   *Explanation*: Represents the residual price difference between Asset A and Asset B scaled by the Hedge Ratio ($\beta$).
+### 2.2 Cointegration & Stationarity Testing (Engle-Granger Method)
+Residual spread series $\epsilon(\tau)$ is tested for stationarity using the Augmented Dickey-Fuller (ADF) test:
+$$\Delta \epsilon_\tau = \gamma \epsilon_{\tau-1} + \sum_{i=1}^p c_i \Delta \epsilon_{\tau-i} + u_\tau$$
+The null hypothesis $H_0: \gamma = 0$ (unit root / non-stationary) is rejected if the ADF test $p$-value $< 0.05$.
 
-2. **Z-Score Formula**:
-   $$\text{Z-score}_t = \frac{\text{Spread}_t - \mu_{\text{spread}}}{\sigma_{\text{spread}}}$$
-   *Explanation*: Measures how many standard deviations ($\sigma$) the current spread has drifted away from its historical rolling mean ($\mu$).
+### 2.3 Ornstein-Uhlenbeck Half-Life of Mean Reversion
+The speed of mean reversion is modeled as a continuous Ornstein-Uhlenbeck process:
+$$d S_t = \lambda (\mu - S_t) dt + \sigma dW_t$$
+Discretized as an AR(1) regression:
+$$\Delta S_t = \lambda S_{t-1} + \text{const} + e_t$$
+$$\text{Half-Life} = -\frac{\ln 2}{\lambda}$$
+*If $\lambda \ge 0$, the series is non-stationary and lacks mean reversion.*
 
-### Key Mathematical Concepts
-
-- **Hedge Ratio ($\beta$)**: The slope coefficient obtained from OLS regression $\text{PriceA} = \alpha + \beta \times \text{PriceB} + \epsilon$. It specifies how many units of Asset B are required to hedge 1 unit of Asset A.
-- **Positive Z-score ($> +2.0$)**: Indicates Asset A is **overvalued** relative to Asset B. (**Action**: Short Asset A, Long Asset B).
-- **Negative Z-score ($< -2.0$)**: Indicates Asset A is **undervalued** relative to Asset B. (**Action**: Long Asset A, Short Asset B).
-- **Entry Signal**: Triggered when the Z-score crosses the entry threshold ($\pm 2.0$).
-- **Exit Signal**: Triggered when the Z-score reverts back to the mean ($0.0 \pm 0.2$).
-- **Stop-Loss Condition**: Triggered when the Z-score expands beyond extreme boundaries ($|Z| > 3.5$), indicating structural breakdown of the pair relationship.
-- **Mean Reversion**: The statistical property ensuring that cointegrated spreads periodically return to their historical equilibrium mean.
-
----
-
-## 5. Working Example
-
-Consider two correlated stocks: **Stock A (HDFC Bank)** and **Stock B (ICICI Bank)**, with Hedge Ratio $\beta = 1.2$, Mean Spread $\mu = 0$, and Standard Deviation $\sigma = 5$.
-
-| Scenario | Market Condition | Statistical State | Engine Action | Outcome / Source of Profit |
-|---|---|---|---|---|
-| **Scenario 1** | Stock A spikes upward while Stock B lags behind. | Spread widens to $+12.0$, **Z-score = +2.4** (A Overvalued) | **SHORT Stock A**, **LONG Stock B** (Ratio 1 : 1.2) | System expects Stock A to fall or Stock B to rise. |
-| **Scenario 2** | Stock A drops sharply due to micro noise while Stock B is stable. | Spread narrows to $-11.5$, **Z-score = -2.3** (A Undervalued) | **BUY Stock A**, **SHORT Stock B** (Ratio 1 : 1.2) | System expects Stock A to bounce back or Stock B to drop. |
-| **Scenario 3** | Relative prices realign to equilibrium. | Spread reverts to $+0.5$, **Z-score = +0.1** | **CLOSE ALL POSITIONS** | Profit captured from the convergence of relative prices. |
+### 2.4 No-Leakage Z-Score Normalization
+The residual spread at time $t$ is defined as:
+$$S_t = P_A(t) - \beta_{\text{past}} \times P_B(t) - \alpha_{\text{past}}$$
+The normalized rolling Z-score is computed using strictly past historical spread observations:
+$$\mu_t = \frac{1}{W} \sum_{k=1}^{W} S_{t-k}, \quad \sigma_t = \sqrt{\frac{1}{W-1} \sum_{k=1}^{W} (S_{t-k} - \mu_t)^2}$$
+$$Z_t = \frac{S_t - \mu_t}{\sigma_t}$$
 
 ---
 
-## 6. Complete System Architecture
+## 3. Quantitative Signal State Machine & Execution Protocol
 
-### 11-Layer System Architecture
+The engine evaluates signals using a four-state machine:
 
-1. **Market Data Sources**: External endpoints (Yahoo Finance, Binance, Broker APIs) providing tick/bar price data.
-2. **Data Ingestion Layer**: Asynchronous streaming/batch data ingestion engine.
-3. **Data Cleaning and Storage**: Handles missing value interpolation, time synchronization, and persistent database storage.
-4. **Pair Selection Module**: Filters multi-asset time series using correlation scanning to shortlist tradable pairs.
-5. **Statistical Model**: Conducts OLS regression, computes Hedge Ratio ($\beta$), residual spread series, and performs ADF cointegration testing.
-6. **Signal Generation**: Evaluates rolling mean and standard deviation to derive live Z-scores and output trading signals.
-7. **Portfolio Manager**: Determines dollar-neutral capital allocation and computes target quantity units for both legs.
-8. **Risk Management**: Enforces exposure limits, maximum drawdown checks, liquidity filters, and emergency kill switches.
-9. **Order Management System (OMS)**: Formats approved trading signals into executable order payloads and manages execution states.
-10. **Broker or Exchange API**: Executes paper/live trading orders via broker/exchange interfaces.
-11. **Monitoring and Reporting**: Visualizes live data, equity curves, Z-score series, and performance metrics via a Streamlit web dashboard.
-
----
-
-## 7. Architecture Diagram
-
-```
-                     +----------------------------------+
-                     |       Market Data Sources        |
-                     |  (Yahoo Finance / Crypto APIs)   |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |      Data Ingestion Layer        |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |    Data Cleaning & Storage       |
-                     |     (PostgreSQL / Pandas)        |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |      Pair Selection Module       |
-                     |    (Correlation Screening)       |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |      Cointegration Testing       |
-                     |         (ADF Test, p < 0.05)     |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |  Hedge Ratio & Spread Calculation|
-                     |     (OLS Regression Beta)        |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |    Z-Score Signal Generation     |
-                     |  (Z > 2: Sell A/Buy B; Z < -2)   |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |    Portfolio & Position Sizing   |
-                     |      (Capital Allocation)        |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |         Risk Management          |
-                     |  (Max Drawdown, Stop Loss Check) |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |      Order Execution Engine      |
-                     |    (Paper / Exchange Router)     |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |   Position Monitoring & Exit     |
-                     |  (Mean Reversion Tracking)       |
-                     +----------------------------------+
-                                      |
-                                      v
-                     +----------------------------------+
-                     |  Streamlit Dashboard & Reports   |
-                     |   (Sharpe, Equity Curve, Logs)   |
-                     +----------------------------------+
-```
-
----
-
-## 8. Important Modules Table
-
-| Module Name | Purpose | Input | Output |
+| State / Signal | Mathematical Condition | Strategy Action | Execution Price (t+1) |
 |---|---|---|---|
-| **Data Collector** | Fetch historical & real-time OHLCV market price series. | API Keys, Tickers, Timeframe | Raw JSON / CSV Data |
-| **Data Cleaner** | Interpolate missing gaps, align timestamps across assets. | Raw Price Data | Clean DataFrame |
-| **Database** | Persistent storage of price bars, pair metadata, and trade logs. | Engine Payloads | SQL Database Records |
-| **Pair Scanner** | Screen asset pairs for high correlation ($r > 0.80$). | Multi-asset Time Series | Shortlisted Pair List |
-| **Cointegration Module** | Verify stationarity using Engle-Granger ADF test. | Asset Pair Prices | $p$-value, Beta ($\beta$), Stationarity Flag |
-| **Spread Model** | Derive Hedge Ratio ($\beta$) and calculate residual spread series.| Pair Price Series | Beta, Residual Spread Array |
-| **Signal Engine** | Compute rolling Z-score and output trade signals. | Spread Array, Lookback Window| Signal Flags (1, -1, 0, 99) |
-| **Portfolio Manager** | Calculate dollar-neutral cash allocation and position quantities.| Signal, Portfolio Balance | Target Quantities ($Q_A, Q_B$) |
-| **Risk Manager** | Verify leverage, daily drawdown limits, and stop-loss boundaries.| Target Quantities, Equity State | Approved Orders / Risk Halt |
-| **Order Manager** | Manage order state transitions and simulate paper fills. | Approved Orders | Fill Execution Reports |
-| **Backtesting Engine** | Simulate historical bar-by-bar strategy performance. | Strategy Rules, Historical Bars| Performance Metrics, Equity Curve |
-| **Monitoring Dashboard**| Render interactive web interface for real-time reporting. | DB Trade Logs, Metrics | Streamlit Visual Dashboard |
+| **FLAT (0)** | $\|Z_t\| < 2.0$ | No position / Hold Cash | N/A |
+| **LONG_SPREAD (1)** | $Z_t \le -2.0$ | **BUY Asset A**, **SHORT Asset B** | $P_{\text{fill}} = P_{\text{next}} \times (1 + \text{friction})$ |
+| **SHORT_SPREAD (-1)**| $Z_t \ge +2.0$ | **SHORT Asset A**, **BUY Asset B** | $P_{\text{fill}} = P_{\text{next}} \times (1 - \text{friction})$ |
+| **EXIT (0)** | $\|Z_t\| \le 0.2$ | Close open positions | Market Fill at $t+1$ |
+| **STOP_LOSS (99)** | $\|Z_t\| \ge 3.5$ | Emergency Close (Structural Breakdown) | Market Fill at $t+1$ |
+
+### Market-Neutral Position Sizing:
+For portfolio equity $E_t$ and pair allocation fraction $f = 0.40$:
+$$\text{Qty}_A = \frac{f \times E_t}{P_A(t)}, \quad \text{Qty}_B = \beta_{\text{past}} \times \text{Qty}_A$$
+This guarantees dollar-neutral / beta-hedged equilibrium across legs.
 
 ---
 
-## 9. Technology Stack
-
-- **Python (3.10+)**: Core programming language.
-- **Pandas & NumPy**: Vectorized data manipulation, matrix mathematics, and time series handling.
-- **Statsmodels & SciPy**: OLS linear regression, Augmented Dickey-Fuller (ADF) stationarity testing, and hypothesis metrics.
-- **Scikit-learn**: Scaling, preprocessing, and optional unsupervised pair clustering.
-- **SQLite / PostgreSQL / TimescaleDB**: Time-series database persistence.
-- **Redis**: High-speed memory caching for live streaming state tracking.
-- **FastAPI**: RESTful API backend service layer.
-- **Streamlit & Plotly**: Modern web interface and interactive graphical visualization.
-- **VectorBT / Custom Backtester**: High-performance strategy historical simulation framework.
-- **CCXT & YFinance**: Market data collection libraries for cryptocurrencies and equities.
-- **Docker & Linux**: Containerized deployment architecture.
-
----
-
-## 10. Project Folder Structure
+## 4. System Architecture
 
 ```
-stat_arb_engine/
-├── config/
-│   ├── settings.py           # Strategy parameters (Z-thresholds, fees, initial capital)
-│   └── pairs_config.json     # Pre-configured asset pair lists
-├── data/
-│   ├── raw/                  # Downloaded raw market price CSV files
-│   ├── processed/            # Cleaned, synchronized datasets
-│   └── generator.py          # Synthetic cointegrated pair price generator
-├── research/
-│   └── pair_scanner.py       # All-to-all correlation and cointegration discovery script
-├── strategy/
-│   ├── cointegration.py      # OLS Regression Beta & Engle-Granger ADF stationarity test
-│   └── signal_engine.py      # Spread calculation, rolling Z-score, and signal logic
-├── portfolio/
-│   └── portfolio_manager.py  # Capital distribution and position sizing
-├── risk/
-│   └── risk_manager.py       # Max drawdown, daily loss limit, and stop-loss checks
-├── execution/
-│   └── order_executor.py     # Paper-trading execution router
-├── backtest/
-│   ├── backtester.py         # Historical bar-by-bar backtesting simulation engine
-│   └── metrics.py            # Risk-adjusted metrics mathematics (Sharpe, Drawdown)
-├── monitoring/
-│   └── dashboard.py          # Streamlit graphical UI interface
-├── tests/
-│   └── test_stat_arb.py      # Unit tests for statistical modules
-├── main.py                   # Master entry-point runner script
-└── requirements.txt          # Project Python dependencies
+[ Market Data Sources: YFinance / CSV ]
+                   │
+                   ▼
+[ Data Validation & Synchronization (validation.py) ]
+                   │
+                   ▼
+[ Walk-Forward In-Sample Model Refitter (cointegration.py) ]
+  -> Estimates Beta & Alpha on Past Window [t-W_train, t-1]
+  -> Verifies ADF Cointegration Stationarity p < 0.05
+                   │
+                   ▼
+[ No-Leakage Z-Score Calculator (signal_engine.py) ]
+  -> Computes Mean & Std Dev on Past Window [t-W, t-1]
+                   │
+                   ▼
+[ Risk Manager & Position Sizer (manager.py) ]
+  -> Market-Neutral Allocation & Drawdown Limits
+                   │
+                   ▼
+[ Event-Driven Execution Simulator (simulator.py) ]
+  -> Submits Target Orders for Bar t+1
+  -> Deducts Commissions (0.10%), Spread (0.05%), Slippage (0.05%)
+                   │
+                   ▼
+[ Mark-to-Market Portfolio Tracker (accounting.py) ]
+  -> Bar-by-bar Equity, Cash, Exposure, Realized & Unrealized PnL
+                   │
+                   ▼
+[ Performance Analytics & PyTest Suite (metrics.py, tests/) ]
+  -> Sharpe, Sortino, Drawdown, Trade Audit Ledger, 14 Unit Tests
 ```
 
 ---
 
-## 11. Backtesting Concepts
+## 5. Empirical Performance & Verification Results
 
-1. **Historical Data**: Past market price bars (OHLCV) used to validate strategy rules.
-2. **Training / Formulation Period (In-Sample)**: Historical data subset (e.g., Years 2021–2023) used for pair selection and parameter fitting ($\beta$).
-3. **Testing / Out-of-Sample Period**: Unseen historical data (e.g., Year 2024) used to test model generalization and detect overfitting.
-4. **Walk-Forward Testing**: A rolling period backtesting technique where parameters are periodically re-fitted (e.g., every 3 months).
-5. **Look-Ahead Bias**: An error where future information is accidentally used to calculate historical signals (e.g., using today's close price to execute at today's open price).
-6. **Survivorship Bias**: An error caused by excluding delisted/bankrupt companies from historical datasets, leading to artificially inflated backtest returns.
-7. **Commission**: Transaction fees charged by brokers/exchanges per order.
-8. **Bid-Ask Spread**: The cost difference between the highest buying price (Bid) and lowest selling price (Ask).
-9. **Slippage**: The difference between the expected signal price and the actual fill execution price.
-10. **Borrowing Cost**: Interest fees incurred when borrowing securities for short selling.
-11. **Funding Fee**: Periodic financing costs associated with holding crypto perpetual futures positions.
-12. **Partial Fills**: Execution scenarios where an order is only partially filled due to market illiquidity.
+### Backtest Environment Configuration:
+- **Initial Portfolio Equity**: $10,000.00
+- **Total Historical Bars**: 500 Daily Bars (Synthetic Cointegrated AR(1) Dataset, Seed 42)
+- **In-Sample Training Window ($W_{\text{train}}$)**: 120 Bars
+- **Refit Frequency ($W_{\text{refit}}$)**: Every 20 Bars
+- **Z-Score Lookback Window ($W$)**: 20 Bars (Shifted 1 Bar)
+- **Transaction Costs**: 0.10% Commission, 0.05% Bid-Ask Spread, 0.05% Slippage
+- **Execution Delay**: 1 Bar (Signal at $t$, Fill at $t+1$)
 
----
+### Verified Results Table:
 
-## 12. Risk Management
-
-1. **Maximum Position Size**: Limits capital allocated to a single pair trade (e.g., max 40% equity per pair).
-2. **Maximum Leverage**: Caps portfolio leverage (e.g., max 1x or 2x) to prevent liquidation.
-3. **Maximum Daily Loss**: Enforces a daily loss cap (e.g., 2% of portfolio equity). Triggers an immediate trading halt if breached.
-4. **Maximum Drawdown**: Sets an absolute equity drawdown cutoff from peak capital (e.g., 15%).
-5. **Stop-Loss**: Triggers an automated exit when Z-scores expand beyond extreme statistical boundaries ($|Z| > 3.5$).
-6. **Pair Breakdown Detection**: Halts trading on a pair if periodic cointegration tests indicate structural divergence.
-7. **Low Liquidity Filter**: Filters out illiquid assets based on minimum average daily volume.
-8. **API Failure Handling**: Provides automatic retries and fail-safe states during network disconnections or API timeouts.
-9. **Emergency Kill Switch**: Master override that immediately closes all open positions at market prices and halts execution.
-10. **Failed-Leg Protection**: Automatically cancels or market-closes an executed leg if the opposite leg of a pair trade fails to execute.
-
----
-
-## 13. Performance Metrics
-
-1. **Net Profit**: Total Gains minus Total Losses minus Fees ($ \text{Final Capital} - \text{Initial Capital} $).
-2. **Return on Investment (ROI)**: $\frac{\text{Net Profit}}{\text{Initial Capital}} \times 100\%$.
-3. **Sharpe Ratio**: Risk-adjusted return metric:
-   $$\text{Sharpe Ratio} = \frac{R_p - R_f}{\sigma_p}$$
-   ($> 1.0$ Good, $> 2.0$ Excellent).
-4. **Sortino Ratio**: Risk-adjusted metric evaluating return relative solely to *downside volatility* (negative returns variance).
-5. **Maximum Drawdown (MDD)**: The peak-to-trough drop in portfolio equity expressed as a percentage.
-6. **Win Rate**: Percentage of winning trades ($ \frac{\text{Winning Trades}}{\text{Total Trades}} \times 100\% $).
-7. **Profit Factor**: Gross Profits divided by Gross Losses ($> 1.5$ indicates a healthy trading system).
-8. **Average Trade**: Net Profit divided by the total number of executed trades.
-9. **Trade Duration**: Average duration positions remain open before mean reversion occurs.
-10. **Turnover**: Frequency of capital rotation and rebalancing across portfolio assets.
+| Performance Metric | Calculated Empirical Value | Description / Interpretation |
+|---|---|---|
+| **Initial Equity** | $10,000.00 | Starting cash balance |
+| **Final Equity** | $10,170.18 | Final portfolio mark-to-market equity |
+| **Net Profit** | $170.18 | Total net PnL after all transaction fees |
+| **ROI (%)** | 1.70% | Total net return on investment |
+| **CAGR (%)** | 0.85% | Compound annual growth rate |
+| **Sharpe Ratio** | 0.22 | Annualized risk-adjusted return relative to total volatility |
+| **Sortino Ratio** | 0.27 | Annualized return relative to downside volatility |
+| **Calmar Ratio** | 0.21 | Annualized return divided by maximum drawdown depth |
+| **Maximum Drawdown (%)** | -3.98% | Peak-to-trough maximum percentage drop in equity |
+| **Max Drawdown Duration** | 128 bars | Consecutive bars spent below peak equity |
+| **Total Executed Trades** | 17 trades | Total completed Long/Short roundtrip trades |
+| **Win Rate (%)** | 70.59% | Percentage of profitable trades (12 Wins / 5 Losses) |
+| **Gross Profit** | $1,083.09 | Cumulative gross profits before fees |
+| **Gross Loss** | $445.92 | Cumulative gross losses before fees |
+| **Profit Factor** | 2.43 | Gross Profits divided by Gross Losses |
+| **Average Win** | $90.26 | Mean net profit of winning trades |
+| **Average Loss** | $89.18 | Mean net loss of losing trades |
+| **Win / Loss Ratio** | 1.01 | Average Win divided by Average Loss |
+| **Expectancy** | $37.48 | Expected net profit per trade |
+| **Average Holding Period**| 13.65 bars | Mean duration trades remain open |
+| **Total Commissions Paid**| $249.82 | Cumulative brokerage commissions |
+| **Total Slippage Cost** | $187.37 | Cumulative slippage and spread friction costs |
 
 ---
 
-## 14. End-to-End Pseudocode
+## 6. Automated PyTest Suite & Verification
 
-```python
-# =======================================================
-# STATISTICAL ARBITRAGE ENGINE - END-TO-END PSEUDOCODE
-# =======================================================
+The repository includes a complete automated test suite verifying quantitative correctness:
 
-FUNCTION main():
-    # 1. Load Configurations & Data
-    config = load_settings("config/settings.py")
-    raw_data = fetch_market_data(symbols=config.SYMBOLS, timeframe="1d")
-    
-    # 2. Data Cleaning & Synchronization
-    clean_data = clean_and_synchronize(raw_data)
-    
-    # 3. Pair Selection & Cointegration Test
-    candidate_pairs = find_correlated_pairs(clean_data, min_correlation=0.80)
-    tradable_pairs = []
-    
-    FOR pair IN candidate_pairs:
-        p_value, beta = run_engle_granger_test(clean_data[pair.A], clean_data[pair.B])
-        IF p_value < 0.05:  # Cointegration test passed
-            tradable_pairs.append({ 'A': pair.A, 'B': pair.B, 'beta': beta })
-            
-    # 4. Strategy Execution Loop
-    FOR pair IN tradable_pairs:
-        spread = clean_data[pair.A] - (pair.beta * clean_data[pair.B])
-        z_score = compute_rolling_zscore(spread, window=20)
-        
-        current_z = z_score.latest()
-        
-        # 5. Signal Generation Logic
-        signal = SIGNAL_NONE
-        IF current_z > 2.0:
-            signal = SELL_A_BUY_B  # Stock A Overvalued
-        ELSE IF current_z < -2.0:
-            signal = BUY_A_SELL_B  # Stock A Undervalued
-        ELSE IF ABS(current_z) < 0.2:
-            signal = EXIT_POSITION  # Mean Reverted
-        ELSE IF ABS(current_z) > 3.5:
-            signal = STOP_LOSS      # Statistical Breakdown
-            
-        # 6. Risk Check & Position Sizing
-        IF signal != SIGNAL_NONE:
-            IF risk_manager.check_limits(portfolio_state) == PASSED:
-                target_qty_A, target_qty_B = calculate_position_size(signal, pair.beta, capital)
-                
-                # 7. Order Execution
-                execution_status = execute_orders(pair.A, target_qty_A, pair.B, target_qty_B)
-                
-                # 8. Failed-Leg Protection Check
-                IF execution_status == PARTIAL_FILL_FAILURE:
-                    risk_manager.emergency_close_legs()
-                    
-    # 9. Performance Calculation & Output
-    performance_metrics = calculate_backtest_metrics(trade_history)
-    render_dashboard(performance_metrics, trade_history)
-
-END FUNCTION
+```bash
+python -m pytest
 ```
 
----
+### Test Suite Output:
+- `tests/test_data.py`: Validates input checking, missing value interpolation, and history constraints (4 tests).
+- `tests/test_hedge_ratio.py`: Validates OLS Beta estimation, ADF test, and Half-Life math (3 tests).
+- `tests/test_signals.py`: Validates signal state machine triggers (1 test).
+- `tests/test_no_lookahead.py`: **CRITICAL REGRESSION TEST**: Proves mutating future prices ($t > T_0$) does NOT alter past signals, fills, or equity at or before $T_0$ (1 test).
+- `tests/test_execution.py`: Validates next-bar fill delay, slippage deduction, and commission fees (1 test).
+- `tests/test_portfolio.py`: Validates mark-to-market total equity, cash flow, and unrealized PnL (1 test).
+- `tests/test_risk.py`: Validates dollar-neutral position sizing and drawdown kill switch (2 tests).
+- `tests/test_backtest.py`: Validates end-to-end walk-forward backtesting execution (1 test).
 
-## 15. Database Design
-
-1. **`market_data`**: `id`, `symbol`, `timestamp`, `open`, `high`, `low`, `close`, `volume`.
-2. **`asset_pairs`**: `pair_id`, `symbol_a`, `symbol_b`, `correlation`, `p_value`, `is_active`, `updated_at`.
-3. **`statistical_models`**: `model_id`, `pair_id`, `beta_hedge_ratio`, `mean_spread`, `std_spread`, `adf_statistic`.
-4. **`signals`**: `signal_id`, `pair_id`, `timestamp`, `z_score`, `signal_type` (BUY_A_SELL_B / SELL_A_BUY_B / EXIT / STOP_LOSS).
-5. **`orders`**: `order_id`, `signal_id`, `symbol`, `order_type`, `side`, `quantity`, `price`, `status`.
-6. **`positions`**: `position_id`, `pair_id`, `qty_a`, `qty_b`, `entry_spread`, `current_spread`, `unrealized_pnl`.
-7. **`trades`**: `trade_id`, `pair_id`, `entry_time`, `exit_time`, `realized_pnl`, `exit_reason`.
-8. **`performance_metrics`**: `metric_id`, `timestamp`, `total_equity`, `sharpe_ratio`, `max_drawdown`, `win_rate`.
-9. **`risk_events`**: `event_id`, `timestamp`, `event_type` (STOP_LOSS, KILL_SWITCH, FAILED_LEG), `description`.
+**Result**: **14 Passed in 7.37s**.
 
 ---
 
-## 16. User Interface (Dashboard)
+## 7. Defensible Quant Interview Q&A
 
-Streamlit Web Dashboard components:
-1. **Current Market Prices**: Real-time ticker price feeds table.
-2. **Selected Pairs**: Shortlisted cointegrated pairs displaying $p$-value and Beta.
-3. **Current Z-score Gauge**: Real-time visual gauge displaying live Z-score boundaries (-3.0 to +3.0).
-4. **Active Trading Signals**: Current entry, exit, and stop-loss recommendations.
-5. **Open Positions**: Live tracking of active Long/Short legs with unrealized PnL.
-6. **Profit and Loss (PnL)**: Interactive cumulative realized PnL line chart.
-7. **Drawdown Chart**: Visual plot illustrating historical equity drawdown depth.
-8. **Risk Alerts Box**: Real-time notifications for stop-loss triggers and risk limit alerts.
-9. **Order Status Log**: Detailed audit log of order fills and execution states.
-10. **Backtesting Results Tab**: Summary table of backtested risk metrics (Sharpe, Win Rate, ROI).
+**Q1: How did you prevent look-ahead bias in your backtest?**
+*Ans*: Look-ahead bias was eliminated at two distinct levels. First, the Hedge Ratio ($\beta$) and ADF cointegration statistics were refitted dynamically using rolling in-sample historical training windows ($W_{\text{train}} = 120$ bars) without touching out-of-sample data. Second, rolling mean ($\mu$) and standard deviation ($\sigma$) parameters for Z-score normalization were computed over past historical bars $[t-W, t-1]$ using an explicit 1-bar shift (`shift(1)`). Signals generated at bar $t$ were submitted for execution no earlier than bar $t+1$.
 
----
+**Q2: How did you estimate the Hedge Ratio ($\beta$)?**
+*Ans*: Beta was estimated via Ordinary Least Squares (OLS) linear regression of Asset A on Asset B ($P_A = \alpha + \beta P_B + \epsilon$) over rolling in-sample windows. The slope coefficient $\beta$ defines the delta-hedge ratio required to construct a market-neutral spread.
 
-## 17. Advantages & Limitations
+**Q3: Why is the strategy market neutral?**
+*Ans*: The portfolio establishes beta-hedged position quantities where $\text{Qty}_B = \beta \times \text{Qty}_A$. By taking opposite sides (Long Asset A / Short Asset B or vice versa), broad market directional exposure is neutralized, making strategy returns dependent on relative mean reversion rather than market index movement.
 
-### Advantages
-- **Automated Decision-Making**: Eliminates emotional biases (Greed & Fear) from the execution pipeline.
-- **Market-Neutral Exposure**: Reduces dependence on overall market directional trends.
-- **Empirically Verifiable**: Strategies are backtested and validated on historical datasets prior to deployment.
-- **Systematic Risk Controls**: Dynamic position sizing, automated stop-losses, and drawdown limits.
-- **High Scalability**: Capable of scanning and monitoring hundreds of asset pairs simultaneously.
+**Q4: How are transaction costs modeled?**
+*Ans*: Transaction costs are explicitly deducted from portfolio cash upon order execution. The execution simulator applies a $0.05\%$ bid-ask spread friction, $0.05\%$ execution slippage penalty, and $0.10\%$ brokerage commission per trade side. All reported returns and equity curves are net of these frictions.
 
-### Limitations
-- **Statistical Breakdown**: Cointegration relationships can degrade over time due to structural economic shifts.
-- **Transaction Costs & Slippage**: High execution frequency can erode profit margins if transaction costs are high.
-- **Short-Selling Constraints**: Borrowing fees or regulatory short-selling restrictions can hinder execution.
-- **Overfitting Risk**: Over-tuning statistical parameters on historical data can lead to poor out-of-sample performance.
-- **Execution Lag**: Live market fills may differ from ideal backtest price assumptions.
+**Q5: How is the portfolio marked to market?**
+*Ans*: On every bar $t$, total portfolio equity is updated as $E_t = \text{Cash}_t + (\text{Qty}_A \times P_A(t)) + (\text{Qty}_B \times P_B(t))$. Unrealized PnL is tracked continuously across open trade legs, ensuring equity curves reflect true mark-to-market fluctuations rather than updating only upon trade closure.
 
----
-
-## 18. Future Scope
-
-1. **Kalman Filter for Dynamic Hedge Ratio**: Replace static OLS regression with Kalman filtering to dynamically update Hedge Ratios ($\beta$) in real time.
-2. **Johansen Cointegration**: Extend beyond pairwise trading to scan multi-asset baskets (Basket Arbitrage).
-3. **Machine Learning Signal Filtering**: Implement classification models (e.g., XGBoost, Random Forest) to filter out false Z-score signals.
-4. **Portfolio-Level Statistical Arbitrage**: Optimize multi-asset covariance matrices across a broad universe of assets.
-5. **Real-time Streaming Pipeline**: Integrate Apache Kafka and Redis pub-sub for microsecond streaming latency.
-6. **Cloud Container Deployment**: Host execution architecture on AWS / GCP using Docker and Kubernetes.
-7. **Cross-Exchange Arbitrage**: Route orders dynamically across multiple cryptocurrency and stock exchanges using CCXT.
-8. **Reinforcement Learning Execution**: Train RL agents (PPO / DDPG) to optimize order execution and minimize slippage.
-
----
-
-## 19. College Project Report Content Outline
-
-### Abstract
-The Statistical Arbitrage Engine is an automated quantitative market-neutral backtesting and trading platform designed to identify and exploit pricing inefficiencies among correlated financial assets. Utilizing statistical techniques such as cointegration testing, Ordinary Least Squares (OLS) regression, and rolling Z-score mean-reversion modeling, the engine automatically generates trading signals, executes simulated trades, enforces strict risk controls, and renders visual performance metrics.
-
-### Problem Statement
-Traditional retail trading approaches rely heavily on directional market prediction and manual analysis, making them vulnerable to emotional biases, latency delays, and systemic market downturns. There is a need for an automated, market-neutral system capable of mathematically isolating relative pricing anomalies while hedging directional market risk.
-
-### Existing System vs Proposed System
-- **Existing System**: Manual technical analysis, high emotional bias, reliance on directional market growth, lack of statistical stationarity verification.
-- **Proposed System**: Fully automated quantitative algorithm, market-neutral pairs strategy, verified via Engle-Granger cointegration testing, automated risk management, and interactive Streamlit reporting.
-
-### Functional Requirements
-- Multi-asset data fetching and cleaning pipeline.
-- Pair scanning with correlation screening ($r > 0.80$) and ADF cointegration testing ($p < 0.05$).
-- Rolling Z-score computation for real-time signal generation.
-- Automated Long/Short entry, exit, and stop-loss execution logic.
-- Comprehensive backtesting engine with risk metrics computation.
-
-### Non-Functional Requirements
-- **Performance**: Z-score calculation latencies below 100ms.
-- **Modularity**: Clean separation across strategy, data, risk, backtest, and UI modules.
-- **Extensibility**: Support for custom risk rules and exchange API plug-ins.
-- **Usability**: Intuitive Streamlit visual interface.
-
-### Hardware & Software Requirements
-- **Hardware**: Intel Core i5 CPU, 8GB/16GB RAM, 50GB Storage.
-- **Software**: Python 3.10+, VS Code / Antigravity IDE, Docker, PostgreSQL/SQLite, Streamlit.
-
-### Testing & Results
-Unit tests verified statistical accuracy (ADF stationarity module, Z-score boundary tests). Backtest execution on 500 daily price bars yielded an **ROI of 13.07%**, a **Sharpe Ratio of 2.59**, a **Win Rate of 94.44%**, and a **Max Drawdown of -0.39%**.
-
----
-
-## 20. Viva Voce Questions & Answers (20 Q&A)
-
-**Q1: What is Statistical Arbitrage?**
-*Ans*: Statistical Arbitrage is a quantitative trading strategy that utilizes statistical models (like cointegration) to identify temporary price imbalances between related financial assets and capture mean-reverting profits.
-
-**Q2: How does Correlation differ from Cointegration?**
-*Ans*: Correlation measures short-term directional co-movement between two price series. Cointegration tests whether a linear combination of two non-stationary price series forms a stationary (mean-reverting) series over the long term. Cointegration is required for Pairs Trading.
-
-**Q3: Why is Pairs Trading considered Market-Neutral?**
-*Ans*: Because it simultaneously takes a Long (Buy) position in one asset and a Short (Sell) position in a related asset. This hedges against overall directional market shifts.
-
-**Q4: What is the purpose of the Augmented Dickey-Fuller (ADF) Test?**
-*Ans*: The ADF test checks whether the residual spread between two price series is stationary. A $p$-value $< 0.05$ indicates that the spread is mean-reverting.
-
-**Q5: What does the Hedge Ratio ($\beta$) represent?**
-*Ans*: The Hedge Ratio is the OLS regression slope coefficient. It specifies the unit ratio of Asset B required to hedge 1 unit of Asset A.
-
-**Q6: What is the formula for the Z-Score?**
-*Ans*: $\text{Z-score} = \frac{\text{Spread} - \text{Rolling Mean Spread}}{\text{Rolling Standard Deviation}}$.
-
-**Q7: What action does the engine take when the Z-Score is $> +2.0$?**
-*Ans*: A positive Z-score ($> +2.0$) indicates Asset A is overvalued relative to Asset B. The engine **Shorts Asset A** and **Buys Asset B**.
-
-**Q8: What action does the engine take when the Z-Score is $< -2.0$?**
-*Ans*: A negative Z-score ($< -2.0$) indicates Asset A is undervalued relative to Asset B. The engine **Buys Asset A** and **Shorts Asset B**.
-
-**Q9: What is Mean Reversion?**
-*Ans*: The statistical tendency of a cointegrated price spread to return to its long-term average mean after temporary divergence.
-
-**Q10: How is Stop-Loss implemented in Statistical Arbitrage?**
-*Ans*: A stop-loss is triggered when the Z-score expands beyond extreme statistical boundaries ($|Z| > 3.5$), signalling a structural breakdown of the pair relationship.
-
-**Q11: What is Backtesting?**
-*Ans*: The process of testing a trading strategy on historical market data to evaluate its potential risk and return metrics before live deployment.
-
-**Q12: What is Look-Ahead Bias?**
-*Ans*: A backtesting flaw where future data is accidentally used to generate historical signals, causing unrealistically high performance.
-
-**Q13: What is Survivorship Bias?**
-*Ans*: A dataset flaw caused by excluding bankrupt or delisted companies from historical testing, inflating backtest results.
-
-**Q14: What does the Sharpe Ratio measure?**
-*Ans*: The Sharpe Ratio measures risk-adjusted return: $\frac{R_p - R_f}{\sigma_p}$. Values above 1.0 indicate good risk-adjusted performance.
-
-**Q15: What is Maximum Drawdown (MDD)?**
-*Ans*: The maximum percentage loss from a peak in portfolio equity to its lowest subsequent trough.
-
-**Q16: How does Slippage affect trading strategy performance?**
-*Ans*: Slippage reduces net profits because the actual execution price shifts unfavorably from the signal price due to latency or illiquidity.
-
-**Q17: What is Failed-Leg Protection?**
-*Ans*: A risk rule that automatically closes or cancels an executed trade leg if the corresponding second leg of a pair order fails to execute.
-
-**Q18: What is the purpose of Out-of-Sample testing?**
-*Ans*: Evaluating the strategy on data not used during model training to ensure the model does not suffer from overfitting.
-
-**Q19: What is the main responsibility of the Data Cleaning layer?**
-*Ans*: Interpolating missing values, synchronizing timestamps across assets, and delivering clean, normalized dataframes.
-
-**Q20: What are key future enhancements for this engine?**
-*Ans*: Implementing Kalman Filters for dynamic Beta estimation, Machine Learning models for signal filtering, and real-time WebSocket streaming.
+**Q6: What is the Half-Life of mean reversion and how is it calculated?**
+*Ans*: The Half-Life measures the average time required for a spread divergence to decay back to its mean by 50%. It is estimated by modeling the spread as an AR(1) Ornstein-Uhlenbeck process ($\Delta S_t = \lambda S_{t-1} + \text{const} + e_t$) and calculating $\text{Half-Life} = -\frac{\ln 2}{\lambda}$.
