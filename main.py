@@ -1,7 +1,8 @@
-"""
-Statistical Arbitrage Engine - Main Runner Script
-Executes Walk-Forward Backtest Simulation with No Look-Ahead Data Leakage.
-"""
+import os
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import sys
 import pandas as pd
 from config import settings

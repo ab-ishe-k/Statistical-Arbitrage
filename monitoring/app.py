@@ -1,8 +1,8 @@
-"""
-Streamlit Web Dashboard for Statistical Arbitrage Research Engine.
-Displays Walk-Forward performance, parameter sensitivity analysis, Plotly charts, and audit trade ledger.
-Run with: python -m streamlit run monitoring/app.py
-"""
+import os
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import streamlit as st
 import pandas as pd
 import numpy as np
